@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Card Voting Game</title>
+  <!-- Local font file reference -->
+  <link rel="stylesheet" href="./fonts.css">
+  <link rel="stylesheet" href="./style.css">
+  <style>
+    /* Custom icon styles using Open Sans font */
+    .icon {
+      font-family: 'Open Sans', sans-serif;
+      font-weight: 700; /* Using bold weight for icons */
+      display: inline-block;
+      line-height: 1;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="header">
+      <button id="calendarBtn" class="btn btn-icon">
+        <span class="icon">📅</span>
+        <span class="tooltip">Calendar</span>
+      </button>
+      <h1>Voting Cards</h1>
+      <button id="sortBtn" class="btn btn-icon">
+        <span class="icon">↕️</span>
+        <span class="tooltip">Sort</span>
+      </button>
+    </div>
+
+    <div id="cardGrid" class="card-grid">
+      <!-- Cards will be dynamically added here -->
+    </div>
+
+    <div class="bottom-bar">
+      <button id="createBtn" class="btn">
+        <span class="icon">+</span>
+        CREATE
+      </button>
+    </div>
+
+    <!-- Create Card Modal -->
+    <div id="createModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 class="modal-title">Create a New Card</h3>
+          <button class="close-btn" id="closeCreateModal">×</button>
+        </div>
+        <textarea id="cardText" placeholder="Enter your text here..."></textarea>
+        <div class="btn-group">
+          <button class="btn" id="saveCardBtn">Create</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Calendar Modal -->
+    <div id="calendarModal" class="modal">
+      <div class="calendar">
+        <div class="calendar-header">
+          <div class="month-year" id="monthYear">March 2025</div>
+          <div class="calendar-nav">
+            <button class="btn-icon" id="prevMonth" style="width: 30px; height: 30px;">
+              <span class="icon">←</span>
+            </button>
+            <button class="btn-icon" id="nextMonth" style="width: 30px; height: 30px;">
+              <span class="icon">→</span>
+            </button>
+          </div>
+        </div>
+        <div class="calendar-grid" id="calendarGrid">
+          <!-- Calendar will be generated here -->
+        </div>
+        <div style="padding: 16px; display: flex; justify-content: flex-end; background-color: var(--card-bg); position: sticky; bottom: 0; z-index: 5;">
+          <button class="btn" id="closeCalendarBtn">Close</button>
+        </div>        
+      </div>
+    </div>
+
+    <!-- Sort Dropdown -->
+    <div id="sortDropdown" class="dropdown">
+      <div class="dropdown-item" data-sort="highest">
+        <span class="icon">⬇️</span>
+        Highest votes first
+      </div>
+      <div class="dropdown-item" data-sort="lowest">
+        <span class="icon">⬆️</span>
+        Lowest votes first
+      </div>
+    </div>
+  </div>
+  <script src="./script.js"></script>
+</body>
+</html>
