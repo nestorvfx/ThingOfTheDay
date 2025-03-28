@@ -62,12 +62,16 @@ class App {
 
       // Generate initial cards
       function generateInitialCards() {
-        cards = sampleTexts.map((text, index) => ({
-          id: index + 1,
-          text: text,
-          votes: Math.floor(Math.random() * 50),
-          isVoting: false // Add isVoting property
-        }));
+        // Instead of using sample data, render empty state if no cards
+        if (!cards || cards.length === 0) {
+          const cardGrid = document.getElementById('cardGrid');
+          cardGrid.innerHTML = `
+            <div class="empty-state">
+              <p>Nothing has been posted yet.</p>
+              <p>Be the first to share something today!</p>
+            </div>`;
+          return;
+        }
         renderCards();
       }
 
@@ -76,13 +80,16 @@ class App {
         const cardGrid = document.getElementById('cardGrid');
         cardGrid.innerHTML = '';
 
+        const hasVoted = cards.some(card => card.isVoted); // Check if the user has already voted
+
         cards.forEach(card => {
           const cardElement = document.createElement('div');
-          cardElement.className = 'card';
+          cardElement.className = `card ${card.isVoted ? 'voted' : ''} ${card.isCreatedByUser ? 'created-by-user' : ''}`;
           cardElement.dataset.id = card.id;
 
           const checkmark = document.createElement('div');
-          const isVisible = card.id === selectedCardId || card.isVoting;
+          // Only show the checkmark if the user hasn't voted yet
+          const isVisible = !hasVoted && (card.id === selectedCardId || card.isVoting);
           checkmark.className = `checkmark ${isVisible ? 'visible' : ''}`;
           checkmark.innerHTML = '<span class="icon">✓</span>';
 
@@ -98,6 +105,13 @@ class App {
           cardElement.appendChild(voteCount);
           cardElement.appendChild(cardText);
 
+          if (card.isCreatedByUser) {
+            const createdByBadge = document.createElement('div');
+            createdByBadge.className = 'created-by-badge';
+            createdByBadge.textContent = 'You Created This';
+            cardElement.appendChild(createdByBadge);
+          }
+
           cardGrid.appendChild(cardElement);
         });
 
@@ -112,6 +126,17 @@ class App {
       // Handle card click (selecting the card)
       function handleCardClick(e) {
         const cardId = parseInt(e.currentTarget.dataset.id);
+        const card = cards.find(c => c.id === cardId);
+
+        // Check if the user has already voted
+        if (cards.some(c => c.isVoted)) {
+          // If the clicked card is not the highlighted one, show a toast message
+          if (!card.isVoted) {
+            showToast('You can only vote once per day.');
+          }
+          return; // Prevent further actions
+        }
+
         if (selectedCardId !== cardId) {
           selectedCardId = cardId;
           renderCards();
@@ -124,10 +149,25 @@ class App {
         const cardId = parseInt(e.currentTarget.parentElement.dataset.id);
         const card = cards.find(c => c.id === cardId);
 
-        if (card && !card.isVoting) {
-          card.isVoting = true;
+        // Prevent voting for other cards if a vote has already been cast
+        if (cards.some(c => c.isVoted)) {
+          // Show toast message immediately
+          showToast('You can only vote once per day.');
+          return;
+        }
+
+        if (card && !card.isVoting && !card.isVoted) {
+          // Send vote message to Devvit
+          postWebViewMessage({
+            type: 'cardVote',
+            data: { cardId }
+          });
+
+          // Update vote count immediately
           card.votes += 1;
-          selectedCardId = null;
+          card.isVoting = true;
+          card.isVoted = true;
+
           renderCards();
 
           setTimeout(() => {
@@ -135,6 +175,25 @@ class App {
             renderCards();
           }, 1000);
         }
+      }
+
+      // Helper function to show a toast message
+      function showToast(message) {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+
+        setTimeout(() => {
+          toast.classList.add('visible');
+        }, 10);
+
+        setTimeout(() => {
+          toast.classList.remove('visible');
+          setTimeout(() => {
+            toast.remove();
+          }, 300);
+        }, 3000);
       }
 
       // Sort cards
@@ -149,15 +208,11 @@ class App {
 
       // Create a new card
       function createNewCard(text) {
-        const newId = cards.length > 0 ? Math.max(...cards.map(c => c.id)) + 1 : 1;
-        const newCard = {
-          id: newId,
-          text: text,
-          votes: 0,
-          isVoting: false
-        };
-        cards.push(newCard);
-        renderCards();
+        console.log('Creating new card with text:', text);
+        postWebViewMessage({
+          type: 'createCard',
+          data: { text }
+        });
       }
 
       // Helper function to format numbers to 4 characters
@@ -252,6 +307,12 @@ class App {
           
           dayElement.appendChild(dayContent);
           calendarGrid.appendChild(dayElement);
+
+          // Add click event to display top post overlay
+          dayElement.addEventListener('click', () => {
+            const selectedDate = new Date(year, month, i).toISOString().split('T')[0];
+            displayTopPostOverlay(selectedDate);
+          });
         }
         
         // Add next month's days to fill the grid
@@ -273,6 +334,22 @@ class App {
         document.getElementById('monthYear').textContent = `${monthNames[month]} ${year}`;
       }
 
+      function displayTopPostOverlay(date) {
+        const overlay = document.getElementById('topPostOverlay');
+        const overlayContent = document.getElementById('topPostContent');
+        overlayContent.innerHTML = ''; // Clear previous content
+
+        // Fetch top post for the selected date
+        postWebViewMessage({
+          type: 'fetchTopPost',
+          data: { date }
+        });
+      }
+
+      // Close overlay
+      document.getElementById('closeTopPostOverlay').addEventListener('click', () => {
+        document.getElementById('topPostOverlay').classList.remove('active');
+      });
 
       // Initialize with current date
       let currentDateObj = new Date();
@@ -282,15 +359,39 @@ class App {
       // Event Listeners
       document.getElementById('createBtn').addEventListener('click', () => {
         document.getElementById('createModal').classList.add('active');
+        // Reset counter when modal opens
+        const textArea = document.getElementById('cardText');
+        textArea.value = '';
+        updateCharacterCount(textArea);
       });
 
       document.getElementById('closeCreateModal').addEventListener('click', () => {
         document.getElementById('createModal').classList.remove('active');
       });
 
+      // Add character count display and limit
+      function updateCharacterCount(textarea) {
+        const maxLength = 128;
+        const currentLength = textarea.value.length;
+        const remaining = maxLength - currentLength;
+        const countDisplay = document.getElementById('characterCount');
+        countDisplay.textContent = `${currentLength}/${maxLength} characters`;
+        
+        if (currentLength > maxLength) {
+          textarea.value = textarea.value.substring(0, maxLength);
+          countDisplay.style.color = 'red';
+        } else {
+          countDisplay.style.color = '';
+        }
+      }
+
+      document.getElementById('cardText').addEventListener('input', function() {
+        updateCharacterCount(this);
+      });
+
       document.getElementById('saveCardBtn').addEventListener('click', () => {
         const text = document.getElementById('cardText').value.trim();
-        if (text) {
+        if (text && text.length <= 128) {
           createNewCard(text);
           document.getElementById('cardText').value = '';
           document.getElementById('createModal').classList.remove('active');
@@ -364,6 +465,114 @@ class App {
           }
         });
       });
+
+      // Add message handler
+      window.addEventListener('message', (event) => {
+        const message = event.data;
+        console.log('Received message:', message);
+        
+        if (message.type === 'devvit-message') {
+          const devvitMessage = message.data.message;
+          console.log('Processing Devvit message:', devvitMessage);
+
+          switch (devvitMessage.type) {
+            case 'initialData':
+              // Use received cards data with votes
+              const cardsData = devvitMessage.data.cards;
+              const lastVotedPost = devvitMessage.data.lastVotedPost;
+              const lastCreatedPost = devvitMessage.data.lastCreatedPost;
+              console.log('Initial cards data:', cardsData);
+              console.log('Last voted post index:', lastVotedPost);
+              console.log('Last created post index:', lastCreatedPost);
+
+              cards = cardsData.map((card, index) => ({
+                id: index + 1,
+                text: card.text,
+                votes: card.votes || 0,
+                isVoting: false,
+                isVoted: index === lastVotedPost, // Highlight the previously voted card
+                isCreatedByUser: index === lastCreatedPost // Highlight only the latest card created by the user
+              }));
+
+              console.log('Processed cards:', cards);
+              generateInitialCards();
+              break;
+
+            case 'voteRegistered':
+              if (!devvitMessage.data.success) {
+                alert(devvitMessage.data.message); // Show toast message
+              } else {
+                const votedPostIndex = devvitMessage.data.votedPostIndex;
+                cards.forEach((card, index) => {
+                  card.isVoted = index === votedPostIndex; // Highlight the correct card
+                  card.isVoting = false; // Disable voting for all cards
+                });
+                renderCards();
+              }
+              break;
+
+            case 'cardCreated':
+              if (devvitMessage.data.success) {
+                console.log('Card created successfully:', devvitMessage.data.text);
+
+                // Reset "isCreatedByUser" for all cards
+                cards.forEach(card => card.isCreatedByUser = false);
+
+                // Add the new card and mark it as created by the user
+                cards.push({
+                  id: cards.length + 1,
+                  text: devvitMessage.data.text,
+                  votes: 0,
+                  isVoting: false,
+                  isVoted: false,
+                  isCreatedByUser: true
+                });
+
+                renderCards();
+                document.getElementById('createModal').classList.remove('active');
+                document.getElementById('cardText').value = '';
+              } else {
+                console.error('Failed to create card:', devvitMessage.data);
+              }
+              break;
+
+            case 'topPostData':
+              const { date, topPost } = devvitMessage.data;
+              console.log(`Received topPostData message for date ${date}:`, topPost);
+
+              const overlay = document.getElementById('topPostOverlay');
+              const overlayContent = document.getElementById('topPostContent');
+
+              if (topPost) {
+                console.log(`Displaying top post for ${date}:`, topPost);
+                overlayContent.innerHTML = `
+                  <div class="top-post-details">
+                    <p class="top-post-text">${topPost.text}</p>
+                    <p class="top-post-meta">
+                      <span><strong>Votes:</strong> ${topPost.votes}</span>
+                      <span><strong>Date:</strong> ${date}</span>
+                    </p>
+                  </div>
+                `;
+              } else {
+                console.log(`No posts found for ${date}. Displaying message.`);
+                overlayContent.innerHTML = `
+                  <div class="top-post-details no-post">
+                    <p class="top-post-message">No posts were made on this day.</p>
+                  </div>
+                `;
+              }
+
+              // Ensure the overlay is visible only after content is set
+              overlay.classList.add('active');
+              console.log(`Top post overlay displayed for ${date}`);
+              break;
+          }
+        }
+      });
+
+      // On load, notify Devvit we're ready
+      postWebViewMessage({ type: 'webViewReady' });
 
       // Initialize the app
       generateInitialCards();
