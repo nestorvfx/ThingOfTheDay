@@ -1,15 +1,16 @@
 import './createPost.js';
-import { Devvit, useState, useWebView } from '@devvit/public-api';
+import { Devvit, TriggerContext, useState, useWebView } from '@devvit/public-api';
 
 type DevvitMessage =
-  | { type: 'initialData'; data: { username: string; currentCounter: number; cards: { text: string; votes: number }[]; lastVotedPost: number | null; lastCreatedPost: number | null } }
+  | { type: 'initialData'; data: { username: string; currentCounter: number; cards: { text: string; username: string; votes: number }[]; lastVotedPost: number | null; lastCreatedPost: number | null; hasPostedToday: boolean } }
   | { type: 'updateCounter'; data: { currentCounter: number } }
-  | { type: 'cardCreated'; data: { success: boolean; text: string } }
+  | { type: 'cardCreated'; data: { success: boolean; text?: string; username?: string; message?: string } }
   | { type: 'voteRegistered'; data: { success: boolean; message?: string; votedPostIndex?: number } }
-  | { type: 'topPostData'; data: { date: string; topPost: { text: string; votes: number; date: string } | null } };
+  | { type: 'topPostData'; data: { date: string; topPost: { text: string; username: string; votes: number; date: string } | null } }
+  | { type: 'monthlyTopPostsData'; data: { year: string; month: string; topPosts: { day: string; text: string; username: string; votes: number }[] } };
 
 export type WebViewMessage = {
-  type: 'webViewReady' | 'setCounter' | 'createCard' | 'cardVote' | 'fetchTopPost';
+  type: 'webViewReady' | 'setCounter' | 'createCard' | 'cardVote' | 'fetchTopPost' | 'fetchMonthlyTopPosts';
   data?: any;
 };
 
@@ -39,21 +40,26 @@ Devvit.addCustomPostType({
             const cardsForToday = await context.redis.get(today) || '';
             console.log('Retrieved cards:', cardsForToday);
 
-            // Parse cards with votes
+            // Check if user has already posted today
+            const userKey = `user:${username}`;
+            const lastPostDate = await context.redis.hGet(userKey, 'lastPostDate');
+            const hasPostedToday = lastPostDate === today;
+
+            // Parse cards with votes and usernames
             const cards = cardsForToday ? cardsForToday.split('|').map(card => {
-              const [text, votes] = card.split('&');
+              const [text, username, votes] = card.split('&');
               return {
                 text,
+                username,
                 votes: parseInt(votes || '0')
               };
             }) : [];
 
             // Fetch the last voted post index
-            const userVoteKey = `user:${username}`;
-            const lastVotedPost = await context.redis.hGet(userVoteKey, 'lastVotedPost');
+            const lastVotedPost = await context.redis.hGet(userKey, 'lastVotedPost');
 
             // Fetch the last created post index
-            const lastCreatedPost = await context.redis.hGet(userVoteKey, 'lastCreatedPost');
+            const lastCreatedPost = await context.redis.hGet(userKey, 'lastCreatedPost');
 
             webView.postMessage({
               type: 'initialData',
@@ -61,22 +67,36 @@ Devvit.addCustomPostType({
                 username: username,
                 currentCounter: 0,
                 cards: cards,
-                lastVotedPost: lastVotedPost ? parseInt(lastVotedPost) : null, // Send the index of the last voted post
-                lastCreatedPost: lastCreatedPost ? parseInt(lastCreatedPost) : null // Send the index of the last created post
+                lastVotedPost: lastVotedPost ? parseInt(lastVotedPost) : null,
+                lastCreatedPost: lastCreatedPost ? parseInt(lastCreatedPost) : null,
+                hasPostedToday: hasPostedToday
               },
             });
             break;
 
           case 'createCard':
             const date = new Date().toISOString().split('T')[0];
-            const userKey = `user:${username}`;
+            const userKey1 = `user:${username}`;
             
+            // Check if user has already posted today
+            const lastPostDate1 = await context.redis.hGet(userKey1, 'lastPostDate');
+            if (lastPostDate1 === date) {
+              webView.postMessage({
+                type: 'cardCreated',
+                data: {
+                  success: false,
+                  message: 'You can only create one post per day.'
+                }
+              });
+              return;
+            }
+
             console.log('Creating new card for date:', date);
             console.log('Text content:', message.data.text);
             
-            // Add new card with 0 votes
+            // Add new card with username and 0 votes
             const existingCards = await context.redis.get(date) || '';
-            const newCard = `${message.data.text}&0`;
+            const newCard = `${message.data.text}&${username}&0`;
             
             const updatedCards = existingCards 
               ? `${existingCards}|${newCard}`
@@ -87,13 +107,17 @@ Devvit.addCustomPostType({
 
             // Update the last created post index
             const newCardIndex = updatedCards.split('|').length - 1;
-            await context.redis.hSet(userKey, { lastCreatedPost: newCardIndex.toString() });
+            await context.redis.hSet(userKey1, { 
+              lastPostDate: date,
+              lastCreatedPost: newCardIndex.toString() 
+            });
 
             webView.postMessage({
               type: 'cardCreated',
               data: {
                 success: true,
-                text: message.data.text
+                text: message.data.text,
+                username: username // Include the username in the response
               }
             });
             break;
@@ -122,9 +146,9 @@ Devvit.addCustomPostType({
             const cardIndex = message.data.cardId - 1; // Use the original order index
 
             if (cardIndex >= 0 && cardIndex < cardsList.length) {
-              const [text, votes] = cardsList[cardIndex].split('&');
+              const [text, username, votes] = cardsList[cardIndex].split('&');
               const newVotes = (parseInt(votes || '0') + 1).toString();
-              cardsList[cardIndex] = `${text}&${newVotes}`;
+              cardsList[cardIndex] = `${text}&${username}&${newVotes}`;
               
               await context.redis.set(voteDate, cardsList.join('|'));
               console.log('Updated votes in Redis:', cardsList.join('|'));
@@ -149,40 +173,38 @@ Devvit.addCustomPostType({
             const fetchDate = message.data.date;
             console.log(`Fetching top post for date: ${fetchDate}`);
 
-            // Fetch posts for the given date
-            const postsForDate = await context.redis.get(fetchDate) || '';
-            console.log(`Posts retrieved from Redis for ${fetchDate}:`, postsForDate);
-
-            // Parse posts into an array of objects
-            const posts = postsForDate
-              ? postsForDate.split('|').map(post => {
-                  const [text, votes] = post.split('&');
-                  return { text, votes: parseInt(votes || '0') };
-                })
-              : [];
-            console.log(`Parsed posts for ${fetchDate}:`, posts);
-
-            // Determine the top post
-            const topPost = posts.length
-              ? posts.reduce((max, post) => (post.votes > max.votes ? post : max), posts[0])
-              : null;
+            // Fix: Ensure no extra day is subtracted due to timezone issues
+            const topPost = await getTopPost(fetchDate, context);
             console.log(`Top post for ${fetchDate}:`, topPost);
 
-            // Send the top post data to the WebView
             webView.postMessage({
               type: 'topPostData',
               data: {
                 date: fetchDate,
-                topPost: topPost
-                  ? { ...topPost, date: fetchDate } // Include the date the post was created
-                  : null
+                topPost: topPost ? { ...topPost, date: fetchDate } : null
               }
             });
-            console.log(`Sent top post data to WebView for ${fetchDate}:`, {
-              date: fetchDate,
-              topPost: topPost
-                ? { ...topPost, date: fetchDate }
-                : null
+            break;
+
+          case 'fetchMonthlyTopPosts':
+            const { year, month } = message.data;
+            const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+            console.log(`Fetching top posts for month: ${monthKey}`);
+
+            // Fetch the monthly hash from Redis
+            const monthlyTopPosts = await context.redis.hGetAll(monthKey);
+            const parsedTopPosts = Object.entries(monthlyTopPosts).map(([day, post]) => ({
+              day,
+              ...JSON.parse(post),
+            }));
+
+            webView.postMessage({
+              type: 'monthlyTopPostsData',
+              data: {
+                year,
+                month,
+                topPosts: parsedTopPosts,
+              },
             });
             break;
         }
@@ -191,62 +213,94 @@ Devvit.addCustomPostType({
 
     return (
       <vstack grow padding="small">
-        <button onPress={() => webView.mount()}>Open Card Voting Game</button>
+        <button onPress={() => webView.mount()}>Thing Of The Day</button>
       </vstack>
     );
   },
 });
 
+Devvit.addSchedulerJob({
+  name: 'calculateTopPost',
+  onRun: async (event, context) => {
+    // Calculate today's date
+    const today = new Date();
+    const year = today.getUTCFullYear();
+    const month = String(today.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(today.getUTCDate()).padStart(2, '0');
+    const monthKey = `${year}-${month}`;
+
+    // Get yesterday's date for fetching posts
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayKey = yesterday.toISOString().split('T')[0];
+
+    // Get yesterday's posts
+    const postsForDate = await context.redis.get(yesterdayKey) || '';
+    const posts = postsForDate
+      ? postsForDate.split('|').map(post => {
+          const [text, username, votes] = post.split('&');
+          return { text, username, votes: parseInt(votes || '0') };
+        })
+      : [];
+
+    // Find top post from yesterday
+    const topPost = posts.length
+      ? posts.reduce((max, post) => (post.votes > max.votes ? post : max), posts[0])
+      : null;
+
+    if (topPost) {
+      // Store under yesterday's day in the monthly hash
+      const [, , yesterdayDay] = yesterdayKey.split('-');
+      await context.redis.hSet(monthKey, { [yesterdayDay]: JSON.stringify(topPost) });
+      console.log(`Stored yesterday's (${yesterdayKey}) top post in Redis under ${monthKey}:${yesterdayDay}`);
+    }
+  }
+});
+
+// Add server-side function for fetching top posts
+async function getTopPost(date: string, context: Devvit.Context) {
+  const [year, month, day] = date.split('-');
+  const monthKey = `${year}-${month}`;
+  
+  try {
+    const storedTopPost = await context.redis.hGet(monthKey, day);
+    return storedTopPost ? JSON.parse(storedTopPost) : null;
+  } catch (error) {
+    console.error(`Error fetching top post for ${date}:`, error);
+    return null;
+  }
+}
+
 Devvit.addTrigger({
   event: 'AppInstall', // Trigger when the app is installed
   onEvent: async (event, context) => {
-    console.log('App installed. Populating Redis with random data for the past 10 days.');
+    
 
-    const today = new Date();
-    const sampleTexts = [
-      "The best way to predict the future is to invent it.",
-      "Simplicity is the ultimate sophistication.",
-      "You miss 100% of the shots you don't take.",
-      "It does not matter how slowly you go as long as you do not stop.",
-      "The journey of a thousand miles begins with one step.",
-      "The only limit to our realization of tomorrow will be our doubts of today.",
-      "Genius is 1% inspiration, 99% perspiration.",
-      "Success is not final, failure is not fatal: It is the courage to continue that counts.",
-      "I have not failed. I've just found 10,000 ways that won't work.",
-      "Life is 10% what happens to you and 90% how you react to it."
-    ];
-
-    for (let i = 1; i <= 10; i++) {
-      try {
-        const date = new Date(today);
-        date.setDate(today.getDate() - i); // Go back `i` days
-        const formattedDate = date.toISOString().split('T')[0];
-
-        // Generate random cards for the day
-        const randomCards = Array.from({ length: Math.floor(Math.random() * 5) + 1 }, (_, index) => {
-          const randomVotes = Math.floor(Math.random() * 100); // Random votes between 0 and 99
-          const randomText = sampleTexts[Math.floor(Math.random() * sampleTexts.length)]; // Random sample text
-          return `${randomText}&${randomVotes}`;
-        });
-
-        // Validate the generated cards
-        if (!randomCards.every(card => /^.+&\d+$/.test(card))) {
-          throw new Error(`Invalid card format detected: ${JSON.stringify(randomCards)}`);
-        }
-
-        // Join cards into a single string for Redis storage
-        const cardsString = randomCards.join('|');
-
-        // Store the random cards in Redis
-        await context.redis.set(formattedDate, cardsString);
-        console.log(`Populated Redis for ${formattedDate}:`, cardsString);
-      } catch (error) {
-        console.error(`Error populating Redis for day ${i}:`, error);
-      }
-    }
-
-    console.log('Redis population complete.');
+    const jobId = await context.scheduler.runJob({
+      name: 'calculateTopPost',
+      cron: '0 0 * * *', // Runs at 00:00 GMT every day
+    });
+    
+    await createPost(context);
   },
 });
+
+async function createPost(context: TriggerContext) {
+  const { reddit } = context;
+  const subreddit = await reddit.getCurrentSubreddit();
+  const post = await reddit.submitPost({
+    title: 'Thing Of The Day',
+    subredditName: subreddit.name,
+    preview: (
+      <vstack height="100%" width="100%" alignment="middle center">
+        <text size="large">Loading ...</text>
+      </vstack>
+    ),
+  });
+  
+  // Approve and distinguish the post
+  await post.approve();
+  await post.distinguish();
+}
 
 export default Devvit;

@@ -88,7 +88,6 @@ class App {
           cardElement.dataset.id = card.id;
 
           const checkmark = document.createElement('div');
-          // Only show the checkmark if the user hasn't voted yet
           const isVisible = !hasVoted && (card.id === selectedCardId || card.isVoting);
           checkmark.className = `checkmark ${isVisible ? 'visible' : ''}`;
           checkmark.innerHTML = '<span class="icon">✓</span>';
@@ -101,9 +100,14 @@ class App {
           cardText.className = 'card-text';
           cardText.textContent = card.text;
 
+          const cardUsername = document.createElement('div');
+          cardUsername.className = 'card-username';
+          cardUsername.textContent = `Posted by: ${card.username}`;
+
           cardElement.appendChild(checkmark);
           cardElement.appendChild(voteCount);
           cardElement.appendChild(cardText);
+          cardElement.appendChild(cardUsername);
 
           if (card.isCreatedByUser) {
             const createdByBadge = document.createElement('div');
@@ -239,107 +243,98 @@ class App {
         days.forEach(day => {
           const dayHeader = document.createElement('div');
           dayHeader.className = 'calendar-day day-header';
-          // Use shorter headers on small screens
           dayHeader.textContent = isSmallScreen ? day.charAt(0) : day;
           calendarGrid.appendChild(dayHeader);
         });
-        
-        // Calculate key dates
-        const firstDay = new Date(year, month, 1).getDay(); // 0 = Sunday, 6 = Saturday
-        const daysInMonth = new Date(year, month + 1, 0).getDate(); // Days in current month
+
+        // Calculate dates
+        const firstDay = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
         const prevMonth = month === 0 ? 11 : month - 1;
         const prevYear = month === 0 ? year - 1 : year;
-        const daysInPrevMonth = new Date(prevYear, prevMonth + 1, 0).getDate(); // Days in previous month
-        
-        // Calculate if we need 6 rows (42 cells) or can use 5 rows (35 cells)
-        const totalWeeks = Math.ceil((firstDay + daysInMonth) / 7);
-        const totalDayCells = totalWeeks * 7;
-        
-        // Add previous month's days
-        for (let i = 0; i < firstDay; i++) {
-          const dayNumber = daysInPrevMonth - firstDay + 1 + i;
-          const emptyDay = document.createElement('div');
-          emptyDay.className = 'calendar-day inactive';
-          const dayContent = document.createElement('div');
-          dayContent.className = 'day-content';
-          dayContent.innerHTML = `<div class="day-number">${dayNumber}</div>`;
-          emptyDay.appendChild(dayContent);
-          calendarGrid.appendChild(emptyDay);
-        }
-        
-        // Add current month's days with daily updates
+        const daysInPrevMonth = new Date(prevYear, prevMonth + 1, 0).getDate();
         const today = new Date();
         const currentYear = today.getFullYear();
         const currentMonth = today.getMonth();
         const currentDate = today.getDate();
+
+        // Add previous month's days
+        for (let i = 0; i < firstDay; i++) {
+          const emptyDay = document.createElement('div');
+          emptyDay.className = 'calendar-day inactive';
+          const dayContent = document.createElement('div');
+          dayContent.className = 'day-content';
+          dayContent.innerHTML = `<div class="day-number">${daysInPrevMonth - firstDay + 1 + i}</div>`;
+          emptyDay.appendChild(dayContent);
+          calendarGrid.appendChild(emptyDay);
+        }
+
+        // Add current month's days
         for (let i = 1; i <= daysInMonth; i++) {
           const dayElement = document.createElement('div');
           dayElement.className = 'calendar-day selectable';
           if (year === currentYear && month === currentMonth && i === currentDate) {
             dayElement.classList.add('today');
           }
+
           const dayContent = document.createElement('div');
           dayContent.className = 'day-content';
-          dayContent.innerHTML = `<div class="day-number">${i}</div>`;
-          
-          // Add daily update if the day is on or before the current date
-          const showUpdate = (year < currentYear) ||
-                            (year === currentYear && month < currentMonth) ||
-                            (year === currentYear && month === currentMonth && i <= currentDate);
-          if (showUpdate) {
-            const randomNum = Math.floor(Math.random() * 50001); // 0 to 50,000
-            const formattedNum = formatNumber(randomNum);
-            
-            // Simplified display for small screens
-            if (isVerySmallScreen) {
-              dayContent.innerHTML += `<div class="day-number-formatted">${formattedNum}</div>`;
-            } else if (isSmallScreen || isSquareAspectRatio) {
-              // More compact display for small screens
-              dayContent.innerHTML += `<div class="day-number-formatted">${formattedNum}</div>`;
-            } else {
-              // Full display for larger screens
-              dayContent.innerHTML += `
-                <div class="day-text">Daily update</div>
-                <div class="day-number-formatted">${formattedNum}</div>
-              `;
-            }
-          }
-          
+          dayContent.innerHTML = `
+            <div class="day-number">${i}</div>
+            <div class="day-text">Loading...</div>
+            <div class="day-number-formatted">-</div>
+          `;
+
           dayElement.appendChild(dayContent);
           calendarGrid.appendChild(dayElement);
 
-          // Add click event to display top post overlay
+          // Fix: Ensure the correct date is passed without timezone offset
           dayElement.addEventListener('click', () => {
-            const selectedDate = new Date(year, month, i).toISOString().split('T')[0];
+            const selectedDate = new Date(Date.UTC(year, month, i)).toISOString().split('T')[0];
             displayTopPostOverlay(selectedDate);
           });
         }
-        
-        // Add next month's days to fill the grid
-        const addedDayCells = firstDay + daysInMonth;
-        const nextMonthCells = totalDayCells - addedDayCells;
-        for (let i = 1; i <= nextMonthCells; i++) {
-          const nextMonthDay = document.createElement('div');
-          nextMonthDay.className = 'calendar-day inactive';
-          const dayContent = document.createElement('div');
-          dayContent.className = 'day-content';
-          dayContent.innerHTML = `<div class="day-number">${i}</div>`;
-          nextMonthDay.appendChild(dayContent);
-          calendarGrid.appendChild(nextMonthDay);
-        }
-        
+
         // Update month and year display
         const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
-                            'July', 'August', 'September', 'October', 'November', 'December'];
+                          'July', 'August', 'September', 'October', 'November', 'December'];
         document.getElementById('monthYear').textContent = `${monthNames[month]} ${year}`;
+
+        // Fetch top posts data after calendar structure is created
+        postWebViewMessage({
+          type: 'fetchMonthlyTopPosts',
+          data: { year, month: month + 1 } // Month is 0-based in JS
+        });
+      }
+
+      // Add a separate handler for monthly top posts data
+      function updateCalendarWithTopPosts(topPosts) {
+        const calendarDays = document.querySelectorAll('.calendar-day.selectable');
+        calendarDays.forEach((day, index) => {
+          const dayNumber = index + 1;
+          const dayContent = day.querySelector('.day-content');
+          const topPost = topPosts.find(post => parseInt(post.day) === dayNumber);
+          
+          if (topPost && topPost.text) {
+            // If there's a post, show preview and votes
+            dayContent.innerHTML = `
+              <div class="day-number">${dayNumber}</div>
+              <div class="day-text">${topPost.text.slice(0, 20)}...</div>
+              <div class="day-number-formatted">${topPost.votes} votes</div>
+            `;
+          } else {
+            // If no post, only show the day number
+            dayContent.innerHTML = `<div class="day-number">${dayNumber}</div>`;
+          }
+        });
       }
 
       function displayTopPostOverlay(date) {
         const overlay = document.getElementById('topPostOverlay');
         const overlayContent = document.getElementById('topPostContent');
-        overlayContent.innerHTML = ''; // Clear previous content
+        overlayContent.innerHTML = '';
 
-        // Fetch top post for the selected date
+        // Just request the exact date's top post
         postWebViewMessage({
           type: 'fetchTopPost',
           data: { date }
@@ -379,7 +374,7 @@ class App {
         
         if (currentLength > maxLength) {
           textarea.value = textarea.value.substring(0, maxLength);
-          countDisplay.style.color = 'red';
+          countDisplay.style.color = red;
         } else {
           countDisplay.style.color = '';
         }
@@ -489,6 +484,7 @@ class App {
                 id: index + 1,
                 text: card.text,
                 votes: card.votes || 0,
+                username: card.username || 'Anonymous',
                 isVoting: false,
                 isVoted: index === lastVotedPost, // Highlight the previously voted card
                 isCreatedByUser: index === lastCreatedPost // Highlight only the latest card created by the user
@@ -523,6 +519,7 @@ class App {
                   id: cards.length + 1,
                   text: devvitMessage.data.text,
                   votes: 0,
+                  username: devvitMessage.data.username || 'Anonymous', // Use the username from the response
                   isVoting: false,
                   isVoted: false,
                   isCreatedByUser: true
@@ -551,6 +548,7 @@ class App {
                     <p class="top-post-meta">
                       <span><strong>Votes:</strong> ${topPost.votes}</span>
                       <span><strong>Date:</strong> ${date}</span>
+                      <span><strong>Posted by:</strong> ${topPost.username}</span>
                     </p>
                   </div>
                 `;
@@ -566,6 +564,10 @@ class App {
               // Ensure the overlay is visible only after content is set
               overlay.classList.add('active');
               console.log(`Top post overlay displayed for ${date}`);
+              break;
+
+            case 'monthlyTopPostsData':
+              updateCalendarWithTopPosts(devvitMessage.data.topPosts);
               break;
           }
         }

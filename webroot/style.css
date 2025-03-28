@@ -132,6 +132,15 @@ body {
   flex: 1;
 }
 
+.card-username {
+  position: absolute;
+  bottom: 1rem;
+  right: 1rem;
+  font-size: 0.75rem;
+  color: var(--text-light);
+  font-weight: 500;
+}
+
 .vote-count {
   position: absolute;
   top: 1rem;
@@ -339,32 +348,38 @@ textarea {
 .day-content {
   text-align: center;
   width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
-  padding: 0.125rem 0;
-  gap: 0.0625rem;
+  justify-content: space-between;
+  padding: 0.25rem 0;
+  gap: 0.25rem; /* Increased gap between elements */
 }
 
 .day-number {
   font-size: 0.875rem;
   font-weight: bold;
-  line-height: 1;
+  line-height: 1.2;
+  margin-bottom: 0.125rem; /* Added margin below number */
 }
 
 .day-text {
   font-size: 0.625rem;
-  line-height: 1;
-  margin: 0;
-  max-height: 1em;
+  line-height: 1.2;
+  margin: 0.125rem 0; /* Added vertical margins */
+  max-height: 2.4em; /* Allow for 2 lines of text */
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .day-number-formatted {
   font-size: 0.75rem;
-  line-height: 1;
+  line-height: 1.2;
   margin: 0;
-  max-height: 1em;
+  padding-top: 0.125rem; /* Added space above vote count */
 }
 
 .dropdown {
@@ -533,6 +548,13 @@ textarea {
 .top-post-meta span {
   font-weight: 500;
   color: #d1d5db; /* Light gray for meta text */
+  display: block; /* Ensure each meta item is on a new line */
+}
+
+.top-post-meta span {
+  font-weight: 500;
+  color: #d1d5db; /* Light gray for meta text */
+  display: block; /* Ensure each meta item is on a new line */
 }
 
 .top-post-details.no-post {
